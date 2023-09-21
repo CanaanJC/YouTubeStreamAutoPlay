@@ -1,4 +1,3 @@
 # YouTubeStreamRefreshPage
-a website for emended YT videos and streams to automatically refresh them
-Works in just html file, script.js not needed
+a website with embeded youtube livestream, will autmaticly detect if it is paused and resume at latest duration (live).
 
