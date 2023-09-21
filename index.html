@@ -49,11 +49,14 @@
             event.target.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function refreshPage() {
-            location.reload();
+        function checkVideoStatus() {
+            if (player.getPlayerState() !== YT.PlayerState.PLAYING) {
+                player.seekTo(player.getDuration(), true);
+                player.playVideo();
+            }
         }
 
-        setTimeout(refreshPage, 3600000); // Refresh every hour (in milliseconds)
+        setInterval(checkVideoStatus, 10000); // Check every 10 seconds (in milliseconds)
     </script>
 </body>
 </html>
