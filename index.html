@@ -1,62 +1,87 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fullscreen YouTube Video</title>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
-        }
-        #video-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-    </style>
+<title>Fullscreen YouTube Video</title>
+<style>
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+}
+#video-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+</style>
 </head>
 <body>
-    <div id="video-container"></div>
-
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script>
-        var player;
-
-        function onYouTubeIframeAPIReady() {
-            player = new YT.Player('video-container', {
-                videoId: 'mhJRzQsLZGg',
-                playerVars: {
-                    autoplay: 1,
-                    controls: 1,
-                    fs: 1,
-                    modestbranding: 1,
-                    rel: 0,
-                    showinfo: 0
-                },
-                events: {
-                    'onReady': onPlayerReady
-                }
-            });
+<div id="video-container"></div>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+var player;
+var lastTime = -1;
+var lastDuration = -1;
+function onYouTubeIframeAPIReady() {
+    player = new YT.Player('video-container', {
+        videoId: 'mhJRzQsLZGg',
+        playerVars: {
+            autoplay: 1,
+            controls: 1,
+            fs: 1,
+            modestbranding: 1,
+            rel: 0,
+            showinfo: 0
+        },
+        events: {
+            'onReady': onPlayerReady
         }
+    });
+}
+function onPlayerReady(event) {
+    event.target.playVideo();
+    event.target.mute();
+    event.target.setPlaybackQuality('hd1080');
+    event.target.setSize(window.innerWidth, window.innerHeight);
+    setTimeout(checkVideoProgress, 5000); // Start checking after 5 seconds
+    setInterval(checkVideoLag, 3600000); // Check for lag every hour
+    setInterval(reloadVideo, 21600000); // Reload video every 6 hours
+}
+function checkVideoProgress() {
+    var currentTime = player.getCurrentTime();
+    var playerState = player.getPlayerState();
+    if (currentTime != lastTime && playerState == 1) { // 1 is the state code for 'playing'
+        lastTime = currentTime;
+        setTimeout(checkVideoProgress, 100); // Check every second
+    } else {
+        // The video has stopped progressing or is not in 'playing' state, reload it
+        player.loadVideoById('mhJRzQsLZGg');
+        setTimeout(checkVideoProgress, 5000); // Start checking again after 5 seconds
+    }
+}
 
-        function onPlayerReady(event) {
-            event.target.playVideo();
-            event.target.mute();
-            event.target.setPlaybackQuality('hd1080');
-            event.target.setSize(window.innerWidth, window.innerHeight);
+function checkVideoLag() {
+    var currentTime = player.getCurrentTime();
+    var duration = player.getDuration();
+    if (duration != lastDuration) {
+        lastDuration = duration;
+        if (duration - currentTime > 15) {
+            // The video is more than 15 seconds behind, reload it
+            player.loadVideoById('mhJRzQsLZGg');
         }
+    }
+}
 
-        function checkVideoStatus() {
-            if (player.getPlayerState() !== YT.PlayerState.PLAYING) {
-                player.seekTo(player.getDuration(), true);
-                player.playVideo();
-            }
-        }
+function reloadVideo() {
+    player.loadVideoById('mhJRzQsLZGg');
+}
 
-        setInterval(checkVideoStatus, 10000); // Check every 10 seconds (in milliseconds)
-    </script>
+window.onload = function() {
+    window.scrollTo(0,document.body.scrollHeight);
+}
+</script>
 </body>
 </html>
