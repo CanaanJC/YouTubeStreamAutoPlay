@@ -1,0 +1,11 @@
+{
+    "SBL": { "code": "mhJRzQsLZGg" },
+    "SCL": { "code": "Jm8wRjD3xVA" },
+    "MGL": { "code": "cOmmvhDQ2HM" },
+    "surface": { "code": ["inCQ49QGmqQ", "tS2PHJmvJzo", "qw3uaLRrYNY", "TyXUaqscyiU"] },
+    "surface-r3ded": { "code": ["inCQ49QGmqQ", "tS2PHJmvJzo", "qw3uaLRrYNY", "IQV0DlS1Ew0"] },
+    "iss1": { "code": "fO9e9jnhYK8" },
+    "iss2": { "code": "vytmBNhc9ig" },
+    "sent": { "code": "IQV0DlS1Ew0" },
+    "f12": { "url": "http://192.168.0.194:8000/f12" }
+}

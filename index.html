@@ -1,87 +1,435 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Fullscreen YouTube Video</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Stream Kiosk</title>
 <style>
-body, html {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow: hidden;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
-#video-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Fullscreen iframe for URL mode */
+#fullscreen-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  display: none;
+}
+
+#fullscreen-frame.active {
+  display: block;
+}
+
+/* Single video — full screen column layout */
+#container.layout-1 {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Two videos — stacked vertically */
+#container.layout-2 {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Four videos — 2x2 grid */
+#container.layout-4 {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  width: 100vw;
+  height: 100vh;
+}
+
+#container.layout-1 .frame-wrapper {
+  -webkit-flex: 1;
+  flex: 1;
+  width: 100vw;
+  position: relative;
+}
+
+#container.layout-2 .frame-wrapper {
+  -webkit-flex: 1;
+  flex: 1;
+  width: 100vw;
+  position: relative;
+}
+
+#container.layout-4 .frame-wrapper {
+  width: 50vw;
+  height: 50vh;
+  position: relative;
+}
+
+.frame-wrapper iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 </style>
 </head>
 <body>
-<div id="video-container"></div>
-<script src="https://www.youtube.com/iframe_api"></script>
+<iframe id="fullscreen-frame"></iframe>
+<div id="container"></div>
+
 <script>
-var player;
-var lastTime = -1;
-var lastDuration = -1;
-function onYouTubeIframeAPIReady() {
-    player = new YT.Player('video-container', {
-        videoId: 'mhJRzQsLZGg',
-        playerVars: {
-            autoplay: 1,
-            controls: 1,
-            fs: 1,
-            modestbranding: 1,
-            rel: 0,
-            showinfo: 0
-        },
-        events: {
-            'onReady': onPlayerReady
-        }
-    });
-}
-function onPlayerReady(event) {
-    event.target.playVideo();
-    event.target.mute();
-    event.target.setPlaybackQuality('hd1080');
-    event.target.setSize(window.innerWidth, window.innerHeight);
-    setTimeout(checkVideoProgress, 5000); // Start checking after 5 seconds
-    setInterval(checkVideoLag, 3600000); // Check for lag every hour
-    setInterval(reloadVideo, 21600000); // Reload video every 6 hours
-}
-function checkVideoProgress() {
-    var currentTime = player.getCurrentTime();
-    var playerState = player.getPlayerState();
-    if (currentTime != lastTime && playerState == 1) { // 1 is the state code for 'playing'
-        lastTime = currentTime;
-        setTimeout(checkVideoProgress, 100); // Check every second
+(function () {
+  var HEALTH_CHECK_INTERVAL = 1000;
+  var COOLDOWN_MS = 15000;
+  var FAILSAFE_MS = 21600000;
+  var LAG_THRESHOLD_S = 15;
+  var SLOW_PROGRESS_MARGIN_S = 5;
+  var TARGET_QUALITY = "hd720";
+
+  var STATE_NAMES = {
+    "-1": "UNSTARTED",
+    "0": "ENDED",
+    "1": "PLAYING",
+    "2": "PAUSED",
+    "3": "BUFFERING",
+    "5": "CUED"
+  };
+
+  var container = document.getElementById("container");
+  var fullscreenFrame = document.getElementById("fullscreen-frame");
+  var frames = [];
+  var layoutMode = 1;
+
+  function log(frameIndex, msg) {
+    var ts = new Date().toISOString();
+    console.log("[" + ts + "] [Frame " + frameIndex + "] " + msg);
+  }
+
+  function getParamKey() {
+    var search = window.location.search;
+    if (!search || search.length < 2) return null;
+    var raw = search.substring(1);
+    var ampIndex = raw.indexOf("&");
+    if (ampIndex !== -1) raw = raw.substring(0, ampIndex);
+    var eqIndex = raw.indexOf("=");
+    if (eqIndex !== -1) raw = raw.substring(0, eqIndex);
+    return raw || null;
+  }
+
+  function loadConfig(callback) {
+    fetch("./codes.json")
+      .then(function (res) { return res.json(); })
+      .then(function (data) { callback(null, data); })
+      .catch(function (err) { callback(err, null); });
+  }
+
+  function resolveEntry(config) {
+    var key = getParamKey();
+    var entry = null;
+
+    if (key && config[key]) {
+      entry = config[key];
     } else {
-        // The video has stopped progressing or is not in 'playing' state, reload it
-        player.loadVideoById('mhJRzQsLZGg');
-        setTimeout(checkVideoProgress, 5000); // Start checking again after 5 seconds
+      var keys = Object.keys(config);
+      if (keys.length === 0) return null;
+      entry = config[keys[0]];
     }
-}
+    return entry;
+  }
 
-function checkVideoLag() {
-    var currentTime = player.getCurrentTime();
-    var duration = player.getDuration();
-    if (duration != lastDuration) {
-        lastDuration = duration;
-        if (duration - currentTime > 15) {
-            // The video is more than 15 seconds behind, reload it
-            player.loadVideoById('mhJRzQsLZGg');
+  function resolveVideos(entry) {
+    var code = entry.code;
+    if (typeof code === "string") return [code];
+    if (Array.isArray(code)) return code.slice(0, 4);
+    return [];
+  }
+
+  function loadUrlMode(url) {
+    console.log("[Init] URL Mode — Loading: " + url);
+    container.style.display = "none";
+    fullscreenFrame.src = url;
+    fullscreenFrame.className = "active";
+  }
+
+  function buildSinglePlayerVars() {
+    return {
+      autoplay: 1,
+      mute: 1,
+      playsinline: 1,
+      controls: 1,
+      fs: 1,
+      rel: 0,
+      enablejsapi: 1,
+      modestbranding: 1,
+      iv_load_policy: 3
+    };
+  }
+
+  function buildMultiPlayerVars() {
+    return {
+      autoplay: 1,
+      mute: 1,
+      playsinline: 1,
+      controls: 0,
+      fs: 0,
+      rel: 0,
+      enablejsapi: 1,
+      modestbranding: 1,
+      iv_load_policy: 3
+    };
+  }
+
+  function setQuality(player) {
+    try {
+      if (typeof player.setPlaybackQuality === "function") {
+        player.setPlaybackQuality(TARGET_QUALITY);
+      }
+      if (typeof player.setPlaybackQualityRange === "function") {
+        player.setPlaybackQualityRange(TARGET_QUALITY, TARGET_QUALITY);
+      }
+    } catch (e) {}
+  }
+
+  function createFrame(videoId, index) {
+    var wrapper = document.createElement("div");
+    wrapper.className = "frame-wrapper";
+    wrapper.id = "wrapper-" + index;
+
+    var playerDiv = document.createElement("div");
+    playerDiv.id = "player-" + index;
+    wrapper.appendChild(playerDiv);
+    container.appendChild(wrapper);
+
+    var frameObj = {
+      index: index,
+      videoId: videoId,
+      player: null,
+      cooldownUntil: Date.now() + COOLDOWN_MS,
+      wrapper: wrapper,
+      lastCheckAt: null,
+      lastTime: null
+    };
+
+    var playerVars = layoutMode === 1 ? buildSinglePlayerVars() : buildMultiPlayerVars();
+
+    log(index, "Creating player for video " + videoId + " (layout: " + layoutMode + ", controls: " + playerVars.controls + ", fs: " + playerVars.fs + ")");
+
+    frameObj.player = new YT.Player("player-" + index, {
+      videoId: videoId,
+      playerVars: playerVars,
+      events: {
+        onReady: function (event) {
+          log(index, "Player ready");
+          event.target.mute();
+          setQuality(event.target);
+          event.target.playVideo();
+        },
+        onPlaybackQualityChange: function (event) {
+          log(index, "Quality changed to: " + event.data);
         }
+      }
+    });
+
+    return frameObj;
+  }
+
+  function reloadFrame(frameObj, reason) {
+    log(frameObj.index, "RELOADING — Reason: " + reason);
+    frameObj.cooldownUntil = Date.now() + COOLDOWN_MS;
+    frameObj.lastCheckAt = null;
+    frameObj.lastTime = null;
+
+    if (frameObj.player && typeof frameObj.player.destroy === "function") {
+      try { frameObj.player.destroy(); } catch (e) {}
     }
-}
 
-function reloadVideo() {
-    player.loadVideoById('mhJRzQsLZGg');
-}
+    var wrapper = frameObj.wrapper;
+    wrapper.innerHTML = "";
 
-window.onload = function() {
-    window.scrollTo(0,document.body.scrollHeight);
-}
+    var playerDiv = document.createElement("div");
+    playerDiv.id = "player-" + frameObj.index;
+    wrapper.appendChild(playerDiv);
+
+    var playerVars = layoutMode === 1 ? buildSinglePlayerVars() : buildMultiPlayerVars();
+
+    frameObj.player = new YT.Player("player-" + frameObj.index, {
+      videoId: frameObj.videoId,
+      playerVars: playerVars,
+      events: {
+        onReady: function (event) {
+          log(frameObj.index, "Player ready after reload");
+          event.target.mute();
+          setQuality(event.target);
+          event.target.playVideo();
+        },
+        onPlaybackQualityChange: function (event) {
+          log(frameObj.index, "Quality changed to: " + event.data);
+        }
+      }
+    });
+  }
+
+  function checkFrame(frameObj) {
+    if (Date.now() < frameObj.cooldownUntil) return;
+
+    var player = frameObj.player;
+    if (!player || typeof player.getPlayerState !== "function") {
+      reloadFrame(frameObj, "Player object missing or not initialized");
+      return;
+    }
+
+    var state;
+    try { state = player.getPlayerState(); } catch (e) {
+      reloadFrame(frameObj, "Exception getting player state: " + e.message);
+      return;
+    }
+
+    var stateName = STATE_NAMES[String(state)] || ("UNKNOWN(" + state + ")");
+
+    if (state === -1) {
+      reloadFrame(frameObj, "State is " + stateName);
+      return;
+    }
+    if (state === 0) {
+      reloadFrame(frameObj, "State is " + stateName);
+      return;
+    }
+    if (state === 2) {
+      reloadFrame(frameObj, "State is " + stateName);
+      return;
+    }
+    if (state === 5) {
+      reloadFrame(frameObj, "State is " + stateName);
+      return;
+    }
+
+    if (state === 1) {
+      var cur = null;
+      var dur = null;
+      try { cur = player.getCurrentTime(); } catch (e) {}
+      try { dur = player.getDuration(); } catch (e) {}
+
+      var tNow = Date.now();
+
+      if (frameObj.lastCheckAt !== null && frameObj.lastTime !== null && typeof cur === "number") {
+        var deltaReal = (tNow - frameObj.lastCheckAt) / 1000;
+        var deltaPlay = cur - frameObj.lastTime;
+
+        var slowProgress = deltaReal > 5 && (deltaPlay < (deltaReal - SLOW_PROGRESS_MARGIN_S));
+
+        var behind = false;
+        if (typeof dur === "number" && dur > 0 && typeof cur === "number") {
+          behind = (dur - cur) >= LAG_THRESHOLD_S;
+        }
+
+        var stuck = deltaReal > 5 && (deltaPlay <= 0);
+
+        if (slowProgress && (behind || stuck)) {
+          reloadFrame(frameObj, "Slow progress + behind/stuck — deltaReal: " + deltaReal.toFixed(1) + "s, deltaPlay: " + deltaPlay.toFixed(1) + "s, behind: " + behind + ", stuck: " + stuck + ", cur: " + cur.toFixed(1) + ", dur: " + (dur ? dur.toFixed(1) : "N/A"));
+          return;
+        }
+      }
+
+      if (typeof cur === "number") {
+        frameObj.lastTime = cur;
+      }
+      frameObj.lastCheckAt = tNow;
+    }
+
+    if (state === 3) {
+      return;
+    }
+  }
+
+  function startHealthChecks() {
+    setInterval(function () {
+      for (var i = 0; i < frames.length; i++) {
+        checkFrame(frames[i]);
+      }
+    }, HEALTH_CHECK_INTERVAL);
+  }
+
+  function startFailsafe() {
+    setInterval(function () {
+      for (var i = 0; i < frames.length; i++) {
+        reloadFrame(frames[i], "6-hour failsafe");
+      }
+    }, FAILSAFE_MS);
+  }
+
+  function init(videos) {
+    container.innerHTML = "";
+    container.style.display = "";
+    fullscreenFrame.className = "";
+    frames = [];
+
+    layoutMode = videos.length;
+    container.className = "layout-" + layoutMode;
+
+    for (var i = 0; i < videos.length; i++) {
+      frames.push(createFrame(videos[i], i));
+    }
+
+    setTimeout(function () {
+      startHealthChecks();
+      startFailsafe();
+    }, COOLDOWN_MS);
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    loadConfig(function (err, config) {
+      if (err || !config) {
+        container.innerHTML = '<p style="color:red;font-family:sans-serif;padding:20px;">Failed to load codes.json</p>';
+        return;
+      }
+      var entry = resolveEntry(config);
+      if (!entry) {
+        container.innerHTML = '<p style="color:red;font-family:sans-serif;padding:20px;">No entry found</p>';
+        return;
+      }
+
+      // Check if entry has "url" instead of "code"
+      if (entry.url && typeof entry.url === "string") {
+        loadUrlMode(entry.url);
+        return;
+      }
+
+      var videos = resolveVideos(entry);
+      if (videos.length === 0) {
+        container.innerHTML = '<p style="color:red;font-family:sans-serif;padding:20px;">No video codes found</p>';
+        return;
+      }
+      console.log("[Init] Layout: " + videos.length + " — Videos: " + JSON.stringify(videos));
+      init(videos);
+    });
+  };
+
+  var tag = document.createElement("script");
+  tag.src = "https://www.youtube.com/iframe_api";
+  var firstScript = document.getElementsByTagName("script")[0];
+  firstScript.parentNode.insertBefore(tag, firstScript);
+})();
 </script>
 </body>
 </html>
